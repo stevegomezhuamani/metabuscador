@@ -66,9 +66,51 @@
       .kind-casino-game { background: #5b21b6; color: #ddd6fe; }
       .kind-virtual-game { background: #065f46; color: #a7f3d0; }
       .live { color: var(--live); font-weight: 600; }
+      .gender {
+        font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+        padding: 2px 8px; border-radius: 999px; font-weight: 600;
+      }
+      .gender-f { background: #831843; color: #fbcfe8; }
+      .gender-m { background: #1e293b; color: #93c5fd; border: 1px solid #334155; }
       .empty { color: var(--muted); padding: 30px 0; text-align: center; }
       mark { background: #fde68a55; color: var(--text); padding: 0 2px; border-radius: 3px; }
       .err { color: #fca5a5; }
+
+      /* Debug panel — botón flotante + drawer con estado del backend */
+      .debug-fab {
+        position: fixed; bottom: 18px; right: 18px; z-index: 100;
+        background: #1e293b; color: #f1f5f9; border: 1px solid #334155;
+        border-radius: 999px; padding: 10px 16px; cursor: pointer;
+        font: 13px/1 system-ui; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+      }
+      .debug-fab:hover { background: #334155; }
+      .debug-panel {
+        position: fixed; bottom: 70px; right: 18px; z-index: 100;
+        background: #0f172a; border: 1px solid #334155; border-radius: 12px;
+        padding: 16px 18px; width: 420px; max-height: 70vh; overflow: auto;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        box-shadow: 0 8px 24px rgba(0,0,0,.6);
+      }
+      .debug-panel.hidden { display: none; }
+      .debug-panel h3 { margin: 0 0 8px; font-size: 13px; color: #f1f5f9; }
+      .debug-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #1e293b; }
+      .debug-row span:first-child { color: #94a3b8; }
+      .debug-row span:last-child { color: #f1f5f9; }
+      .debug-pill {
+        display: inline-block; padding: 1px 6px; border-radius: 4px;
+        font-size: 10px; font-weight: 700; letter-spacing: .04em;
+      }
+      .debug-ok { background: #14532d; color: #86efac; }
+      .debug-warn { background: #713f12; color: #fde68a; }
+      .debug-bad { background: #7f1d1d; color: #fca5a5; }
+      .debug-section { margin-top: 12px; }
+      .debug-section h4 { margin: 0 0 4px; font-size: 12px; color: #93c5fd; }
+      .debug-actions { margin-top: 12px; display: flex; gap: 8px; }
+      .debug-btn {
+        background: #1e293b; border: 1px solid #334155; color: #f1f5f9;
+        border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 11px;
+      }
+      .debug-btn:hover { background: #334155; }
     </style>
   </head>
   <body>
@@ -104,7 +146,11 @@
     </div>
 
     <script>
-      const API_BASE = "https://search-gaming.api.dev.kurax.dev/bsn-metasearch/v1";
+      // Auto-detect: localhost → stack docker local; cualquier otro host → dev en kurax.
+      const API_BASE =
+        location.hostname === "localhost" || location.hostname === "127.0.0.1"
+          ? "http://localhost:3061/bsn-metasearch/v1"
+          : "https://search-gaming.api.dev.kurax.dev/bsn-metasearch/v1";
       document.getElementById("apiLabel").textContent = API_BASE;
 
       // Cada categoría: endpoint, cómo extraer la lista, y cómo normalizar un item.
@@ -115,6 +161,7 @@
           norm: (p) => ({
             kind: p.kind,
             title: p.title,
+            gender: p.document?.gender,
             tags: (p.subtitle || "").split(" · ").filter(Boolean),
           }),
         },
@@ -125,6 +172,7 @@
             kind: "sport-event",
             title: e.eventName,
             live: e.isLive,
+            gender: e.gender,
             tags: [e.sportName, e.leagueName, e.regionName, e.startEventDate].filter(Boolean),
           }),
         },
@@ -180,17 +228,23 @@
         "virtual-game": "virtual",
       };
 
+      // Clasificación (género + tier de liga) y orden vienen del backend.
+      // El frontend solo consume `gender` y mantiene el orden que recibe.
+
       function card(item, q) {
         const kindBadge =
           activeCat === "todo"
             ? `<span class="kind kind-${item.kind}">${KIND_LABEL[item.kind] || item.kind}</span>`
             : "";
         const liveBadge = item.live ? `<span class="live">● EN VIVO</span>` : "";
+        const genderBadge = item.gender === "F"
+          ? `<span class="gender gender-f">♀ MUJERES</span>`
+          : (item.kind === "sport-event" ? `<span class="gender gender-m">♂ HOMBRES</span>` : "");
         const tags = item.tags.map((t) => `<span class="pill">${escapeHtml(t)}</span>`).join("");
         return `
           <div class="card">
             <div class="name">${highlight(item.title || "", q)}</div>
-            <div class="row">${kindBadge}${liveBadge}${tags}</div>
+            <div class="row">${kindBadge}${liveBadge}${genderBadge}${tags}</div>
           </div>`;
       }
 
@@ -250,6 +304,129 @@
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         search();
         $q.focus();
+      });
+
+      // ─────────────────────────────────────────────────────────────────
+      // Debug panel: muestra qué tiene el backend conectado
+      // (IA, dictionary, aliases, equipos, conteo de typesense).
+      // Solo consume `${API_BASE}/debug`. Si ese endpoint no existe (versión
+      // vieja del backend), muestra "no disponible" sin romper la página.
+      // ─────────────────────────────────────────────────────────────────
+      const $debugFab = document.createElement("button");
+      $debugFab.className = "debug-fab";
+      $debugFab.textContent = "🐞 Debug";
+      const $debugPanel = document.createElement("div");
+      $debugPanel.className = "debug-panel hidden";
+      document.body.appendChild($debugFab);
+      document.body.appendChild($debugPanel);
+
+      const pill = (ok, label) => {
+        const cls = ok === true ? "debug-ok" : ok === false ? "debug-bad" : "debug-warn";
+        return `<span class="debug-pill ${cls}">${label}</span>`;
+      };
+      const row = (k, v) => `<div class="debug-row"><span>${k}</span><span>${v}</span></div>`;
+
+      async function loadDebug() {
+        $debugPanel.innerHTML = "<h3>Cargando…</h3>";
+        try {
+          const r = await fetch(`${API_BASE}/debug`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const d = await r.json();
+          renderDebug(d);
+        } catch (err) {
+          $debugPanel.innerHTML = `
+            <h3>Debug</h3>
+            <div class="err">No se pudo obtener /debug: ${escapeHtml(err.message)}</div>
+            <div style="color:#94a3b8;margin-top:6px;font-size:11px">
+              Posible: backend desplegado no tiene este endpoint todavía (necesita el MR de observabilidad).
+            </div>
+            <div class="debug-actions">
+              <button class="debug-btn" id="debugReload">Reintentar</button>
+              <button class="debug-btn" id="debugClose">Cerrar</button>
+            </div>`;
+          document.getElementById("debugReload").addEventListener("click", loadDebug);
+          document.getElementById("debugClose").addEventListener("click", () => $debugPanel.classList.add("hidden"));
+        }
+      }
+
+      function renderDebug(d) {
+        const bedrockPill = !d.bedrock.enabled
+          ? pill(null, "DISABLED (lexical-only)")
+          : d.bedrock.healthy
+            ? pill(true, "OK")
+            : pill(false, "DOWN");
+        const dictPill = !d.dictionary.enabled
+          ? pill(null, "DISABLED")
+          : d.dictionary.healthy
+            ? pill(true, "OK")
+            : pill(false, "DOWN");
+        $debugPanel.innerHTML = `
+          <h3>Estado del backend <span style="color:#94a3b8;font-weight:normal">/debug</span></h3>
+
+          <div class="debug-section">
+            <h4>Servicio</h4>
+            ${row("nombre", escapeHtml(d.service.name))}
+            ${row("versión", escapeHtml(d.service.version))}
+            ${row("env", escapeHtml(d.service.node_env))}
+            ${row("uptime", d.service.uptime_seconds + "s")}
+          </div>
+
+          <div class="debug-section">
+            <h4>IA — AWS Bedrock</h4>
+            ${row("estado", bedrockPill)}
+            ${row("modelo", escapeHtml(d.bedrock.model))}
+            ${row("dimensión", d.bedrock.dimensions)}
+            ${row("región", escapeHtml(d.bedrock.region))}
+          </div>
+
+          <div class="debug-section">
+            <h4>Dictionary (SymSpell)</h4>
+            ${row("estado", dictPill)}
+            ${row("URL", escapeHtml(d.dictionary.base_url || "(no seteada)"))}
+          </div>
+
+          <div class="debug-section">
+            <h4>Datos cargados al startup</h4>
+            ${row("aliases", `<b>${d.aliases.loaded}</b> entries`)}
+            ${row("equipos", `<b>${d.teams.loaded}</b> teams`)}
+          </div>
+
+          <div class="debug-section">
+            <h4>Typesense — ${escapeHtml(d.typesense.host)}:${d.typesense.port}</h4>
+            ${row("sport_events", d.typesense.collections.sport_events.exists
+              ? `<b>${d.typesense.collections.sport_events.documents}</b> docs`
+              : pill(false, "NO EXISTE"))}
+            ${row("casino_games", d.typesense.collections.casino_games.exists
+              ? `<b>${d.typesense.collections.casino_games.documents}</b> docs`
+              : pill(false, "NO EXISTE"))}
+          </div>
+
+          <div class="debug-section">
+            <h4>Qué pedir a DevOps si algo está mal</h4>
+            <div style="color:#94a3b8;font-size:11px;line-height:1.5">
+              ${!d.bedrock.enabled ? "• <b>IA DISABLED</b>: revisar <code>BEDROCK_MODE=real</code> en el deployment.<br>" : ""}
+              ${d.bedrock.enabled && !d.bedrock.healthy ? "• <b>Bedrock DOWN</b>: ver logs <code>[BEDROCK_DOWN]</code> en CloudWatch — IAM/quota/network.<br>" : ""}
+              ${d.dictionary.enabled && !d.dictionary.healthy ? "• <b>Dictionary DOWN</b>: ver pod mtb-dictionary, logs <code>[DICT_FETCH_FAIL]</code>.<br>" : ""}
+              ${d.aliases.loaded === 0 ? "• <b>aliases vacíos</b>: ver <code>[ALIASES_MISSING/EMPTY]</code> — montar data/aliases.json.<br>" : ""}
+              ${d.teams.loaded === 0 ? "• <b>teams vacíos</b>: ver <code>[TEAMS_EMPTY]</code> — montar data/teams.json.<br>" : ""}
+              ${!d.typesense.collections.sport_events.exists ? "• <b>sport_events no existe</b>: revisar indexer, que haya corrido /index/init.<br>" : ""}
+              ${!d.typesense.collections.casino_games.exists ? "• <b>casino_games no existe</b>: revisar indexer/games-stream Lambda.<br>" : ""}
+              ${d.bedrock.healthy && d.dictionary.healthy && d.aliases.loaded > 0 && d.teams.loaded > 0 && d.typesense.collections.sport_events.exists && d.typesense.collections.casino_games.exists ? "• Todo OK ✓" : ""}
+            </div>
+          </div>
+
+          <div class="debug-actions">
+            <button class="debug-btn" id="debugReload">↻ Refrescar</button>
+            <button class="debug-btn" id="debugClose">Cerrar</button>
+          </div>
+        `;
+        document.getElementById("debugReload").addEventListener("click", loadDebug);
+        document.getElementById("debugClose").addEventListener("click", () => $debugPanel.classList.add("hidden"));
+      }
+
+      $debugFab.addEventListener("click", () => {
+        $debugPanel.classList.toggle("hidden");
+        if (!$debugPanel.classList.contains("hidden")) loadDebug();
       });
     </script>
   </body>
