@@ -409,16 +409,28 @@
       }
 
       function renderDebug(d) {
-        const bedrockPill = !d.bedrock.enabled
-          ? pill(null, "DISABLED (lexical-only)")
-          : d.bedrock.healthy
-            ? pill(true, "OK")
-            : pill(false, "DOWN");
-        const dictPill = !d.dictionary.enabled
+        // El backend devuelve la estructura nueva: d.ai.titan_query_embedding
+        // (Titan en search-api), d.ai.nova_doc_enrichment / d.ai.titan_doc_embedding
+        // (en el indexer — reachable solo si INDEXER_BASE_URL está seteado).
+        const titanQ = d.ai && d.ai.titan_query_embedding || {};
+        const novaDoc = d.ai && d.ai.nova_doc_enrichment || {};
+        const titanDoc = d.ai && d.ai.titan_doc_embedding || {};
+        const dict = d.dictionary || {};
+        const aliases = (d.datasets && d.datasets.aliases) || {};
+        const teams = (d.datasets && d.datasets.teams) || {};
+
+        const aiPill = (svc) => {
+          if (svc.reachable === false) return pill(null, "UNREACHABLE");
+          if (!svc.enabled) return pill(null, "DISABLED");
+          return svc.healthy ? pill(true, "OK") : pill(false, "DOWN");
+        };
+        const titanQPill = aiPill(titanQ);
+        const novaDocPill = aiPill(novaDoc);
+        const titanDocPill = aiPill(titanDoc);
+        const dictPill = !dict.enabled
           ? pill(null, "DISABLED")
-          : d.dictionary.healthy
-            ? pill(true, "OK")
-            : pill(false, "DOWN");
+          : dict.healthy ? pill(true, "OK") : pill(false, "DOWN");
+
         $debugPanel.innerHTML = `
           <h3>Estado del backend <span style="color:#94a3b8;font-weight:normal">/debug</span></h3>
 
@@ -431,23 +443,37 @@
           </div>
 
           <div class="debug-section">
-            <h4>IA — AWS Bedrock</h4>
-            ${row("estado", bedrockPill)}
-            ${row("modelo", escapeHtml(d.bedrock.model))}
-            ${row("dimensión", d.bedrock.dimensions)}
-            ${row("región", escapeHtml(d.bedrock.region))}
+            <h4>IA — Titan query embedding <span style="color:#94a3b8;font-weight:normal">(search-api)</span></h4>
+            ${row("estado", titanQPill)}
+            ${row("modelo", escapeHtml(titanQ.model || "?"))}
+            ${row("dimensión", titanQ.dimensions || "?")}
+            ${row("región", escapeHtml(titanQ.region || "?"))}
+          </div>
+
+          <div class="debug-section">
+            <h4>IA — Nova doc enrichment <span style="color:#94a3b8;font-weight:normal">(indexer)</span></h4>
+            ${row("estado", novaDocPill)}
+            ${row("modelo", escapeHtml(novaDoc.model || "?"))}
+            ${novaDoc.error ? row("error", `<span style="color:#fca5a5">${escapeHtml(novaDoc.error)}</span>`) : ""}
+          </div>
+
+          <div class="debug-section">
+            <h4>IA — Titan doc embedding <span style="color:#94a3b8;font-weight:normal">(indexer)</span></h4>
+            ${row("estado", titanDocPill)}
+            ${row("modelo", escapeHtml(titanDoc.model || "?"))}
+            ${titanDoc.error ? row("error", `<span style="color:#fca5a5">${escapeHtml(titanDoc.error)}</span>`) : ""}
           </div>
 
           <div class="debug-section">
             <h4>Dictionary (SymSpell)</h4>
             ${row("estado", dictPill)}
-            ${row("URL", escapeHtml(d.dictionary.base_url || "(no seteada)"))}
+            ${row("URL", escapeHtml(dict.base_url || "(no seteada)"))}
           </div>
 
           <div class="debug-section">
             <h4>Datos cargados al startup</h4>
-            ${row("aliases", `<b>${d.aliases.loaded}</b> entries`)}
-            ${row("equipos", `<b>${d.teams.loaded}</b> teams`)}
+            ${row("aliases", `<b>${aliases.loaded || 0}</b> entries`)}
+            ${row("equipos", `<b>${teams.loaded || 0}</b> teams`)}
           </div>
 
           <div class="debug-section">
@@ -463,14 +489,15 @@
           <div class="debug-section">
             <h4>Qué pedir a DevOps si algo está mal</h4>
             <div style="color:#94a3b8;font-size:11px;line-height:1.5">
-              ${!d.bedrock.enabled ? "• <b>IA DISABLED</b>: revisar <code>BEDROCK_MODE=real</code> en el deployment.<br>" : ""}
-              ${d.bedrock.enabled && !d.bedrock.healthy ? "• <b>Bedrock DOWN</b>: ver logs <code>[BEDROCK_DOWN]</code> en CloudWatch — IAM/quota/network.<br>" : ""}
-              ${d.dictionary.enabled && !d.dictionary.healthy ? "• <b>Dictionary DOWN</b>: ver pod mtb-dictionary, logs <code>[DICT_FETCH_FAIL]</code>.<br>" : ""}
-              ${d.aliases.loaded === 0 ? "• <b>aliases vacíos</b>: ver <code>[ALIASES_MISSING/EMPTY]</code> — montar data/aliases.json.<br>" : ""}
-              ${d.teams.loaded === 0 ? "• <b>teams vacíos</b>: ver <code>[TEAMS_EMPTY]</code> — montar data/teams.json.<br>" : ""}
+              ${!titanQ.enabled ? "• <b>Titan (search-api) DISABLED</b>: revisar <code>BEDROCK_MODE=real</code>.<br>" : ""}
+              ${titanQ.enabled && !titanQ.healthy ? "• <b>Titan (search-api) DOWN</b>: ver logs <code>[BEDROCK_DOWN]</code>.<br>" : ""}
+              ${novaDoc.reachable === false ? "• <b>Indexer UNREACHABLE</b>: setear <code>INDEXER_BASE_URL=http://indexer:3000</code> en el deployment del search-api.<br>" : ""}
+              ${dict.enabled && !dict.healthy ? "• <b>Dictionary DOWN</b>: ver pod mtb-dictionary, logs <code>[DICT_FETCH_FAIL]</code>.<br>" : ""}
+              ${(aliases.loaded || 0) === 0 ? "• <b>aliases vacíos</b>: ver <code>[ALIASES_MISSING/EMPTY]</code> — montar data/aliases.json.<br>" : ""}
+              ${(teams.loaded || 0) === 0 ? "• <b>teams vacíos</b>: ver <code>[TEAMS_EMPTY]</code> — montar data/teams.json.<br>" : ""}
               ${!d.typesense.collections.sport_events.exists ? "• <b>sport_events no existe</b>: revisar indexer, que haya corrido /index/init.<br>" : ""}
               ${!d.typesense.collections.casino_games.exists ? "• <b>casino_games no existe</b>: revisar indexer/games-stream Lambda.<br>" : ""}
-              ${d.bedrock.healthy && d.dictionary.healthy && d.aliases.loaded > 0 && d.teams.loaded > 0 && d.typesense.collections.sport_events.exists && d.typesense.collections.casino_games.exists ? "• Todo OK ✓" : ""}
+              ${titanQ.healthy && dict.healthy && (aliases.loaded || 0) > 0 && (teams.loaded || 0) > 0 && d.typesense.collections.sport_events.exists && d.typesense.collections.casino_games.exists ? "• Todo OK ✓" : ""}
             </div>
           </div>
 
