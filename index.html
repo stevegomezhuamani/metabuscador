@@ -184,12 +184,20 @@
         todo: {
           url: (q) => `${API_BASE}/products/search?q=${encodeURIComponent(q)}`,
           list: (d) => d.products || [],
-          norm: (p) => ({
-            kind: p.kind,
-            title: p.title,
-            gender: p.document?.gender,
-            tags: (p.subtitle || "").split(" · ").filter(Boolean),
-          }),
+          norm: (p) => {
+            // El subtitle viene del backend tipo "Fútbol · Copa Mundial 2026".
+            // Le sumamos la fecha (que está en p.document) y región para que
+            // los partidos de Todo se muestren igual que en Deportes.
+            const base = (p.subtitle || "").split(" · ").filter(Boolean);
+            const region = p.document?.regionName;
+            const date = p.document?.startEventDate;
+            return {
+              kind: p.kind,
+              title: p.title,
+              gender: p.document?.gender,
+              tags: [...base, region, date].filter(Boolean),
+            };
+          },
         },
         deportes: {
           url: (q) => `${API_BASE}/sports-events/search?q=${encodeURIComponent(q)}`,
