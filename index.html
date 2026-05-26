@@ -72,6 +72,31 @@
       }
       .gender-f { background: #831843; color: #fbcfe8; }
       .gender-m { background: #1e293b; color: #93c5fd; border: 1px solid #334155; }
+
+      /* Chips de sugerencia (alias multi-entity) */
+      .suggestions {
+        margin: 14px 0 6px;
+        padding: 12px 14px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-left: 3px solid var(--accent);
+        border-radius: 8px;
+        font-size: 13px;
+      }
+      .suggestions-label { color: var(--muted); margin-right: 8px; }
+      .suggestion-chip {
+        display: inline-block;
+        background: #334155;
+        color: var(--text);
+        padding: 4px 12px;
+        border-radius: 999px;
+        margin: 2px 4px 2px 0;
+        cursor: pointer;
+        border: 1px solid #475569;
+        font-weight: 500;
+        transition: background .15s;
+      }
+      .suggestion-chip:hover { background: var(--accent); color: #0f172a; }
       .empty { color: var(--muted); padding: 30px 0; text-align: center; }
       mark { background: #fde68a55; color: var(--text); padding: 0 2px; border-radius: 3px; }
       .err { color: #fca5a5; }
@@ -141,6 +166,7 @@
         <span id="timing"></span>
       </div>
       <div class="bykind" id="bykind"></div>
+      <div id="suggestions"></div>
 
       <div id="results" class="results"></div>
     </div>
@@ -248,6 +274,30 @@
           </div>`;
       }
 
+      const $suggestions = document.getElementById("suggestions");
+
+      // Si el backend devolvió aliasSuggestions (alias con múltiples entidades,
+      // ej: "messi" → ["Inter Miami", "Argentina"]), mostramos chips clickeables
+      // para que el usuario refine. Click = reemplaza el input y dispara una
+      // nueva búsqueda con la entidad específica.
+      function renderSuggestions(suggestions) {
+        if (!Array.isArray(suggestions) || suggestions.length === 0) {
+          $suggestions.innerHTML = "";
+          return;
+        }
+        const chips = suggestions
+          .map((s) => `<span class="suggestion-chip" data-label="${escapeHtml(s.label)}">${escapeHtml(s.label)}</span>`)
+          .join("");
+        $suggestions.innerHTML = `<div class="suggestions"><span class="suggestions-label">Quizás buscas:</span>${chips}</div>`;
+        $suggestions.querySelectorAll(".suggestion-chip").forEach((el) => {
+          el.addEventListener("click", () => {
+            $q.value = el.dataset.label;
+            search();
+            $q.focus();
+          });
+        });
+      }
+
       function renderByKind(data) {
         if (activeCat !== "todo" || !data.byKind) { $bykind.innerHTML = ""; return; }
         const k = data.byKind;
@@ -279,6 +329,7 @@
           const items = cat.list(data).map(cat.norm);
           $timing.textContent = data.searchTime != null ? `${data.searchTime} ms` : "";
           renderByKind(data);
+          renderSuggestions(data.aliasSuggestions);
 
           if (!items.length) {
             $results.innerHTML = `<div class="empty">Sin resultados para «${escapeHtml(q)}»</div>`;
