@@ -157,6 +157,47 @@
       mark { background: #fde68a; color: #0f172a; padding: 0 2px; border-radius: 3px; }
       .err { color: #b91c1c; }
 
+      /* Botón Docs — abre el panorama del buscador (markdown embebido) */
+      .docs-fab {
+        position: fixed; bottom: 18px; right: 120px; z-index: 100;
+        background: var(--accent); color: #fff; border: none;
+        border-radius: 999px; padding: 10px 16px; cursor: pointer;
+        font: 13px/1 system-ui; font-weight: 600;
+        box-shadow: 0 4px 12px rgba(37,99,235,.35);
+      }
+      .docs-fab:hover { background: #1d4ed8; }
+      .docs-overlay {
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(15,23,42,.5); backdrop-filter: blur(2px);
+        display: flex; align-items: flex-start; justify-content: center;
+        padding: 40px 16px; overflow: auto;
+      }
+      .docs-overlay.hidden { display: none; }
+      .docs-modal {
+        background: #ffffff; color: #0f172a; border-radius: 14px;
+        max-width: 860px; width: 100%; padding: 28px 32px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.4);
+      }
+      .docs-modal h1 { font-size: 24px; margin: 0 0 6px; }
+      .docs-modal h2 { font-size: 19px; margin: 24px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+      .docs-modal h3 { font-size: 16px; margin: 18px 0 6px; }
+      .docs-modal p { margin: 8px 0; }
+      .docs-modal ul { margin: 8px 0; padding-left: 22px; }
+      .docs-modal li { margin: 3px 0; }
+      .docs-modal code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+      .docs-modal pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow: auto; font-size: 12.5px; line-height: 1.5; }
+      .docs-modal pre code { background: none; padding: 0; color: inherit; }
+      .docs-modal table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+      .docs-modal th, .docs-modal td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; vertical-align: top; }
+      .docs-modal th { background: #f8fafc; font-weight: 700; }
+      .docs-modal hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+      .docs-modal blockquote { border-left: 3px solid var(--accent); margin: 10px 0; padding: 4px 14px; color: #475569; background: #f8fafc; }
+      .docs-close {
+        float: right; cursor: pointer; border: none; background: #f1f5f9;
+        border-radius: 8px; padding: 6px 12px; font-weight: 600; color: #475569;
+      }
+      .docs-close:hover { background: #e2e8f0; }
+
       /* Debug panel — botón flotante + drawer con estado del backend */
       .debug-fab {
         position: fixed; bottom: 18px; right: 18px; z-index: 100;
@@ -515,6 +556,176 @@
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         runSearch(true);
         $q.focus();
+      });
+
+      // ─────────────────────────────────────────────────────────────────
+      // Docs: panel con el panorama del buscador. Mini-render de markdown
+      // (headings, tablas, code, listas) sin dependencias. Para actualizar,
+      // editar la constante PANORAMA_MD de abajo.
+      // ─────────────────────────────────────────────────────────────────
+      function mdToHtml(md) {
+        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const inline = (s) =>
+          esc(s)
+            .replace(/`([^`]+)`/g, "<code>$1</code>")
+            .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        const lines = md.replace(/\r/g, "").split("\n");
+        let html = "", i = 0;
+        while (i < lines.length) {
+          const line = lines[i];
+          if (line.startsWith("```")) {
+            let code = "";
+            i++;
+            while (i < lines.length && !lines[i].startsWith("```")) { code += esc(lines[i]) + "\n"; i++; }
+            i++;
+            html += `<pre><code>${code}</code></pre>`;
+            continue;
+          }
+          if (/^\|(.+)\|\s*$/.test(line) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+            const row = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+            const headers = row(line);
+            i += 2;
+            let body = "";
+            while (i < lines.length && /^\|(.+)\|\s*$/.test(lines[i])) {
+              body += "<tr>" + row(lines[i]).map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>";
+              i++;
+            }
+            html += `<table><thead><tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+            continue;
+          }
+          if (line.startsWith("### ")) { html += `<h3>${inline(line.slice(4))}</h3>`; i++; continue; }
+          if (line.startsWith("## ")) { html += `<h2>${inline(line.slice(3))}</h2>`; i++; continue; }
+          if (line.startsWith("# ")) { html += `<h1>${inline(line.slice(2))}</h1>`; i++; continue; }
+          if (/^[-*] /.test(line)) {
+            let items = "";
+            while (i < lines.length && /^[-*] /.test(lines[i])) { items += `<li>${inline(lines[i].slice(2))}</li>`; i++; }
+            html += `<ul>${items}</ul>`;
+            continue;
+          }
+          if (line.startsWith("> ")) { html += `<blockquote>${inline(line.slice(2))}</blockquote>`; i++; continue; }
+          if (/^---+\s*$/.test(line)) { html += "<hr>"; i++; continue; }
+          if (line.trim() === "") { i++; continue; }
+          html += `<p>${inline(line)}</p>`;
+          i++;
+        }
+        return html;
+      }
+
+      const PANORAMA_MD = `# Panorama del buscador
+
+Estado actualizado de cómo rankea cada tab y el roadmap. Se actualiza con cada cambio.
+
+## 1. Los 4 tabs y su motor
+
+| Tab | Endpoint | Colección(es) | Ranking |
+| --- | --- | --- | --- |
+| Todo | /products/search | sport_events + casino_games | Cascade deportes + juegos (lexical-first) |
+| Deportes | /sports-events/search | sport_events | Cascade completo (11 criterios) |
+| Casino | /casino-games/search | casino_games (CASINO/SLOT/..) | Ranking name-driven |
+| Virtuales | /virtual-games/search | casino_games (VIRTUALES) | Ranking name-driven |
+
+Capas comunes: aliases (cule→Barcelona, messi→Argentina, voley→Voleibol), typos (SymSpell), híbrido lexical+vector.
+
+## 2. Cascade de DEPORTES (11 criterios)
+
+\`\`\`
+0.  nicho         → eSports/eFootball (99) siempre al fondo
+1.  matchKind     → participant > event > league/region/sport > vector
+1b. tokensMatched → más palabras matcheadas = mejor
+2.  sportTier     → Fútbol(0) > Básquet(1) > Tenis(2) > otros(3)
+3.  isLive        → en vivo arriba
+4.  leagueTier    → solo si participant (Mundial > primera > resto)
+5.  regionTier    → Perú(0) > España(1) > resto(2)
+6.  fecha         → más cercano primero
+7.  genderRank    → masculino > femenino/sub-23
+8.  teamTier      → top clubs > resto
+9.  textMatch     → bucket log10 (desempate final)
+\`\`\`
+
+**query_by**: participantHome(10), participantAway(10), eventName(5), leagueName(2), regionName(2), sportName(2), searchText(1)
+
+## 3. Casino / Virtuales (name-driven)
+
+\`\`\`
+query_by: name(4), provider(3), searchText(1)
+  ← nombre del juego domina; provider para "pragmatic", "evolution"
++ infix fallback (substrings)
+SIN cascade, SIN isLive, SIN tiers
+\`\`\`
+
+## 4. Lexical-first (calidad de resultados)
+
+Se busca SOLO lexical primero. Si hay matches reales, no se rellena con vecinos del vector. El vector solo entra si NO hubo match lexical (query conceptual tipo "el clasico").
+
+- "copa libertadores" → solo Copa Libertadores, sin Austria/Australia
+- "blackjack" en Todo → solo blackjacks, sin ruido de deportes
+- "el clasico" → sin match lexical → vector aporta semántica
+
+## 5. Matriz de reglas por tab
+
+| Regla | Deportes | Casino | Virtuales | Universal |
+| --- | --- | --- | --- | --- |
+| Aliases (sinónimos) | ✅ | ✅ | ✅ | ✅ |
+| Typos (SymSpell) | ✅ | ✅ | ✅ | ✅ |
+| Lexical-first (sin vector noise) | ✅ | ✅ | ✅ | ✅ |
+| Match literal nombre primero | ✅ | ✅ | ✅ | ✅ |
+| Paginación nativa backend | ✅ | ✅ | ✅ | ✅ |
+| Búsqueda por proveedor | — | ✅ | ✅ | casino |
+| isLive (en vivo arriba) | ✅ | ❌ | ❌ | casino podría |
+| Popularidad / más jugados | ❌ | ❌ | ❌ | falta data |
+| Tiers liga/equipo | ✅ | N/A | N/A | solo deportes |
+| Región (Perú/España) | ✅ | ❌ | ❌ | evaluar |
+| Género (M/F) | ✅ | N/A | N/A | solo deportes |
+| Fecha | ✅ | N/A | N/A | solo deportes |
+
+## 6. Baseline universal (sí o sí en todos)
+
+| # | Regla | Estado |
+| --- | --- | --- |
+| 1 | Aliases + typos | ✅ |
+| 2 | Lexical-first (no vector si hay match real) | ✅ los 3 |
+| 3 | Match literal del nombre/título primero | ✅ |
+| 4 | Paginación nativa del backend | ✅ los 3 |
+| 5 | Ocultar vector noise | ✅ vía #2 |
+
+## 7. Casino: criterios PENDIENTES de definir
+
+Casino necesita criterios del equipo comercial (como los 9 de deportiva).
+
+| Regla casino | Necesita |
+| --- | --- |
+| Más jugados / populares | campo popularidad (no existe en data hoy) |
+| Casino en vivo arriba | type=CASINO_EN_VIVO ya existe — fácil |
+| Proveedor preferido | definición del negocio |
+| Temática / categoría | definición del negocio |
+
+Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, updated_t. NO hay popularidad / veces jugado / RTP. Para ranking por popularidad, Delta Sharing tendría que exponer ese campo.
+
+## 8. Roadmap
+
+| # | Mejora | Estado |
+| --- | --- | --- |
+| A | Vector noise oculto si hay match real | ✅ |
+| B | "blackjack" en Todo sin ruido deportes | ✅ |
+| C | Paginación nativa (3 tabs) | ✅ |
+| Prov | Búsqueda por proveedor en casino | ✅ |
+| D | Ranking casino: populares / en vivo | ⏳ falta data + criterios |
+| E | byKind consistente | ⏳ |
+| F | Performance indexer (skip-por-hash) | ⏳ infra/DevOps |
+| H | Geo-aware (Perú/España por IP) | ⏳ futuro |
+`;
+
+      const $docsFab = document.createElement("button");
+      $docsFab.className = "docs-fab";
+      $docsFab.textContent = "📄 Docs";
+      const $docsOverlay = document.createElement("div");
+      $docsOverlay.className = "docs-overlay hidden";
+      $docsOverlay.innerHTML = `<div class="docs-modal"><button class="docs-close" id="docsClose">✕ Cerrar</button><div id="docsBody">${mdToHtml(PANORAMA_MD)}</div></div>`;
+      document.body.appendChild($docsFab);
+      document.body.appendChild($docsOverlay);
+      $docsFab.addEventListener("click", () => $docsOverlay.classList.remove("hidden"));
+      $docsOverlay.addEventListener("click", (e) => {
+        if (e.target === $docsOverlay || e.target.id === "docsClose") $docsOverlay.classList.add("hidden");
       });
 
       // ─────────────────────────────────────────────────────────────────
