@@ -57,6 +57,29 @@
       }
       .card .name { font-weight: 600; font-size: 16px; }
       .card .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--muted); font-size: 13px; align-items: center; }
+
+      /* Card estilo Apuestatotal — fondo blanco, texto oscuro, emoji deporte,
+         fecha arriba, participantes uno debajo del otro. */
+      .card-light {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        color: #0f172a;
+      }
+      .card-light .card-top {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        font-size: 12px; color: #64748b; margin-bottom: 6px;
+      }
+      .card-light .card-date { color: #64748b; }
+      .card-light .card-live { color: #dc2626; font-weight: 700; }
+      .card-light .card-league {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 13px; color: #475569; margin-bottom: 6px;
+      }
+      .card-light .card-team {
+        font-weight: 600; font-size: 15px; color: #0f172a; line-height: 1.35;
+      }
+      .card-light .kind { /* badges adaptados a fondo claro */ }
+      .card-light mark { background: #fde68a; color: #0f172a; }
       .pill { background: #0f172a; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
       .kind {
         font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
@@ -185,17 +208,20 @@
           url: (q) => `${API_BASE}/products/search?q=${encodeURIComponent(q)}`,
           list: (d) => d.products || [],
           norm: (p) => {
-            // El subtitle viene del backend tipo "Fútbol · Copa Mundial 2026".
-            // Le sumamos la fecha (que está en p.document) y región para que
-            // los partidos de Todo se muestren igual que en Deportes.
-            const base = (p.subtitle || "").split(" · ").filter(Boolean);
-            const region = p.document?.regionName;
-            const date = p.document?.startEventDate;
+            const doc = p.document || {};
             return {
               kind: p.kind,
               title: p.title,
-              gender: p.document?.gender,
-              tags: [...base, region, date].filter(Boolean),
+              gender: doc.gender,
+              live: doc.isLive,
+              sport: doc.sportName,
+              league: doc.leagueName,
+              region: doc.regionName,
+              date: doc.startEventDate,
+              home: doc.participantHome,
+              away: doc.participantAway,
+              provider: doc.provider,
+              gameType: doc.type,
             };
           },
         },
@@ -207,7 +233,12 @@
             title: e.eventName,
             live: e.isLive,
             gender: e.gender,
-            tags: [e.sportName, e.leagueName, e.regionName, e.startEventDate].filter(Boolean),
+            sport: e.sportName,
+            league: e.leagueName,
+            region: e.regionName,
+            date: e.startEventDate,
+            home: e.participantHome,
+            away: e.participantAway,
           }),
         },
         casino: {
@@ -216,7 +247,8 @@
           norm: (g) => ({
             kind: "casino-game",
             title: g.name,
-            tags: [g.provider, g.type].filter(Boolean),
+            provider: g.provider,
+            gameType: g.type,
           }),
         },
         virtuales: {
@@ -225,7 +257,8 @@
           norm: (g) => ({
             kind: "virtual-game",
             title: g.name,
-            tags: [g.provider, g.type].filter(Boolean),
+            provider: g.provider,
+            gameType: g.type,
           }),
         },
       };
@@ -262,23 +295,70 @@
         "virtual-game": "virtual",
       };
 
+      // Emoji por deporte (estilo página de búsqueda de Apuestatotal).
+      // El nombre viene de FIRST API en español.
+      function sportEmoji(sport) {
+        const s = (sport || "").toLowerCase();
+        if (/f[uú]tbol\s*americano|nfl/.test(s)) return "🏈";
+        if (/f[uú]tbol|football|soccer/.test(s)) return "⚽";
+        if (/b[aá]squet|baloncesto|basketball|nba/.test(s)) return "🏀";
+        if (/tenis|tennis/.test(s)) return "🎾";
+        if (/v[oó]ley|voleibol|volleyball/.test(s)) return "🏐";
+        if (/balonmano|handball/.test(s)) return "🤾";
+        if (/b[eé]isbol|baseball/.test(s)) return "⚾";
+        if (/hockey/.test(s)) return "🏒";
+        if (/rugby/.test(s)) return "🏉";
+        return "🏆";
+      }
+
       // Clasificación (género + tier de liga) y orden vienen del backend.
       // El frontend solo consume `gender` y mantiene el orden que recibe.
 
+      // Formatea "2026-05-29 04:06:00" -> "29/05 · 04:06"
+      function fmtDate(raw) {
+        if (!raw) return "";
+        const m = String(raw).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+        if (!m) return escapeHtml(String(raw));
+        const [, , mo, d, h, mi] = m;
+        return `${d}/${mo} · ${h}:${mi}`;
+      }
+
       function card(item, q) {
+        const isSport = item.kind === "sport-event";
         const kindBadge =
           activeCat === "todo"
             ? `<span class="kind kind-${item.kind}">${KIND_LABEL[item.kind] || item.kind}</span>`
             : "";
-        const liveBadge = item.live ? `<span class="live">● EN VIVO</span>` : "";
         const genderBadge = item.gender === "F"
           ? `<span class="gender gender-f">♀ MUJERES</span>`
-          : (item.kind === "sport-event" ? `<span class="gender gender-m">♂ HOMBRES</span>` : "");
-        const tags = item.tags.map((t) => `<span class="pill">${escapeHtml(t)}</span>`).join("");
+          : (isSport ? `<span class="gender gender-m">♂ HOMBRES</span>` : "");
+
+        if (isSport) {
+          // Estilo AT: arriba la fecha o EN VIVO, luego emoji + liga, luego
+          // los dos participantes uno debajo del otro.
+          const top = item.live
+            ? `<span class="card-live">● EN VIVO</span>`
+            : `<span class="card-date">🗓️ ${fmtDate(item.date)}</span>`;
+          const league = [item.league, item.region].filter(Boolean).join(" · ");
+          const home = item.home || (item.title || "").split(/\s+vs\s+/i)[0] || item.title;
+          const away = item.away || (item.title || "").split(/\s+vs\s+/i)[1] || "";
+          return `
+            <div class="card card-light">
+              <div class="card-top">${top}${kindBadge}${genderBadge}</div>
+              <div class="card-league">${sportEmoji(item.sport)} <span>${escapeHtml(league)}</span></div>
+              <div class="card-team">${highlight(home, q)}</div>
+              ${away ? `<div class="card-team">${highlight(away, q)}</div>` : ""}
+            </div>`;
+        }
+
+        // Casino / virtual: emoji de juego + nombre + proveedor/tipo.
+        const meta = [item.provider, item.gameType].filter(Boolean).join(" · ");
+        const emoji = item.kind === "virtual-game" ? "🎮" : "🎰";
         return `
-          <div class="card">
-            <div class="name">${highlight(item.title || "", q)}</div>
-            <div class="row">${kindBadge}${liveBadge}${genderBadge}${tags}</div>
+          <div class="card card-light">
+            <div class="card-top">${kindBadge}</div>
+            <div class="card-team">${emoji} ${highlight(item.title || "", q)}</div>
+            ${meta ? `<div class="card-league"><span>${escapeHtml(meta)}</span></div>` : ""}
           </div>`;
       }
 
