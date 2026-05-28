@@ -443,7 +443,13 @@
             $status.textContent = "0 resultados";
             return;
           }
-          $status.textContent = `${data.total ?? items.length} resultado${(data.total ?? items.length) === 1 ? "" : "s"}`;
+          // `total` es el total de coincidencias en la base; `items.length` es
+          // lo que devuelve esta página. Si hay más coincidencias que las
+          // mostradas, lo aclaramos para no confundir.
+          const total = data.total ?? items.length;
+          $status.textContent = total > items.length
+            ? `Mostrando ${items.length} de ${total} coincidencias`
+            : `${total} resultado${total === 1 ? "" : "s"}`;
           $results.innerHTML = items.map((it) => card(it, q)).join("");
         } catch (err) {
           if (reqId !== lastReq) return;
