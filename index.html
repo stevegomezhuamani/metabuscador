@@ -139,6 +139,20 @@
         transition: all .15s;
       }
       .suggestion-chip:hover { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+      /* Paginación */
+      .pager {
+        display: flex; align-items: center; justify-content: center; gap: 14px;
+        margin: 20px 0 8px;
+      }
+      .pager:empty { display: none; }
+      .pager-btn {
+        padding: 8px 16px; font-size: 14px; cursor: pointer; font-weight: 600;
+        background: #ffffff; border: 1px solid var(--border); border-radius: 999px;
+        color: var(--accent); transition: all .15s;
+      }
+      .pager-btn:hover:not(:disabled) { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .pager-btn:disabled { color: #cbd5e1; cursor: not-allowed; }
+      .pager-info { color: var(--muted); font-size: 13px; }
       .empty { color: var(--muted); padding: 30px 0; text-align: center; }
       mark { background: #fde68a; color: #0f172a; padding: 0 2px; border-radius: 3px; }
       .err { color: #b91c1c; }
@@ -211,6 +225,7 @@
       <div id="suggestions"></div>
 
       <div id="results" class="results"></div>
+      <div id="pager" class="pager"></div>
     </div>
 
     <script>
@@ -224,7 +239,7 @@
       // Cada categoría: endpoint, cómo extraer la lista, y cómo normalizar un item.
       const CATEGORIES = {
         todo: {
-          url: (q) => `${API_BASE}/products/search?q=${encodeURIComponent(q)}`,
+          url: (q, page) => `${API_BASE}/products/search?q=${encodeURIComponent(q)}&page=${page}`,
           list: (d) => d.products || [],
           norm: (p) => {
             const doc = p.document || {};
@@ -245,7 +260,7 @@
           },
         },
         deportes: {
-          url: (q) => `${API_BASE}/sports-events/search?q=${encodeURIComponent(q)}`,
+          url: (q, page) => `${API_BASE}/sports-events/search?q=${encodeURIComponent(q)}&page=${page}`,
           list: (d) => d.events || [],
           norm: (e) => ({
             kind: "sport-event",
@@ -261,7 +276,7 @@
           }),
         },
         casino: {
-          url: (q) => `${API_BASE}/casino-games/search?q=${encodeURIComponent(q)}`,
+          url: (q, page) => `${API_BASE}/casino-games/search?q=${encodeURIComponent(q)}&page=${page}`,
           list: (d) => d.games || [],
           norm: (g) => ({
             kind: "casino-game",
@@ -415,11 +430,39 @@
         ].join("");
       }
 
-      const search = debounce(async () => {
+      const $pager = document.getElementById("pager");
+      const PAGE_SIZE = 20; // todos los endpoints devuelven 20 por página
+      let currentPage = 1;
+
+      // Renderiza el control de paginación. Prefiere la metadata del backend
+      // (data.pagination); si el endpoint no la trae, la calcula desde `total`.
+      function renderPager(data, itemsLen) {
+        const total = data.total ?? itemsLen;
+        const pg = data.pagination || {
+          page: currentPage,
+          totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+          hasMore: currentPage * PAGE_SIZE < total,
+        };
+        if (pg.totalPages <= 1) { $pager.innerHTML = ""; return; }
+        $pager.innerHTML = `
+          <button class="pager-btn" id="prevPage" ${pg.page <= 1 ? "disabled" : ""}>← Anterior</button>
+          <span class="pager-info">Página ${pg.page} de ${pg.totalPages}</span>
+          <button class="pager-btn" id="nextPage" ${!pg.hasMore ? "disabled" : ""}>Siguiente →</button>`;
+        const prev = document.getElementById("prevPage");
+        const next = document.getElementById("nextPage");
+        if (prev) prev.addEventListener("click", () => { currentPage--; runSearch(false); });
+        if (next) next.addEventListener("click", () => { currentPage++; runSearch(false); });
+      }
+
+      // Núcleo de la búsqueda. resetPage=true vuelve a página 1 (query nueva o
+      // cambio de tab); resetPage=false mantiene la página (clic en paginación).
+      async function runSearch(resetPage = true) {
+        if (resetPage) currentPage = 1;
         const q = $q.value.trim();
         $bykind.innerHTML = "";
         if (q.length < 2) {
           $results.innerHTML = "";
+          $pager.innerHTML = "";
           $status.textContent = "Escribe al menos 2 caracteres";
           $timing.textContent = "";
           return;
@@ -428,7 +471,7 @@
         $status.textContent = "Buscando…";
         const cat = CATEGORIES[activeCat];
         try {
-          const r = await fetch(cat.url(q));
+          const r = await fetch(cat.url(q, currentPage));
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
           if (reqId !== lastReq) return;
@@ -440,24 +483,28 @@
 
           if (!items.length) {
             $results.innerHTML = `<div class="empty">Sin resultados para «${escapeHtml(q)}»</div>`;
+            $pager.innerHTML = "";
             $status.textContent = "0 resultados";
             return;
           }
-          // `total` es el total de coincidencias en la base; `items.length` es
-          // lo que devuelve esta página. Si hay más coincidencias que las
-          // mostradas, lo aclaramos para no confundir.
           const total = data.total ?? items.length;
           $status.textContent = total > items.length
-            ? `Mostrando ${items.length} de ${total} coincidencias`
+            ? `${total} coincidencias`
             : `${total} resultado${total === 1 ? "" : "s"}`;
           $results.innerHTML = items.map((it) => card(it, q)).join("");
+          renderPager(data, items.length);
+          // Al cambiar de página, subir al inicio de resultados.
+          if (!resetPage) $results.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (err) {
           if (reqId !== lastReq) return;
           $status.innerHTML = `<span class="err">Error: ${escapeHtml(err.message)}</span>`;
           $results.innerHTML = "";
+          $pager.innerHTML = "";
           $timing.textContent = "";
         }
-      }, 350);
+      }
+
+      const search = debounce(() => runSearch(true), 350);
 
       $q.addEventListener("input", search);
 
@@ -466,7 +513,7 @@
         if (!tab) return;
         activeCat = tab.dataset.cat;
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-        search();
+        runSearch(true);
         $q.focus();
       });
 
