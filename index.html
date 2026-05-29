@@ -850,6 +850,18 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
           </div>
 
           <div class="debug-section">
+            <h4>Operaciones — Reindex</h4>
+            <div style="color:#94a3b8;font-size:11px;line-height:1.5;margin-bottom:8px">
+              Dispara un reindex completo en el indexer (drop + recreate de la colección, re-enriquecimiento con Nova + re-vectorización con Titan). Con grounding activo tarda ~100 min. Monitorea logs.
+            </div>
+            <div class="debug-actions">
+              <button class="debug-btn" id="reindexSports">🔄 Reindex deportes</button>
+              <button class="debug-btn" id="reindexGames">🔄 Reindex casino</button>
+            </div>
+            <div id="reindexStatus" style="color:#94a3b8;font-size:11px;margin-top:8px"></div>
+          </div>
+
+          <div class="debug-section">
             <h4>Qué pedir a DevOps si algo está mal</h4>
             <div style="color:#94a3b8;font-size:11px;line-height:1.5">
               ${!titanQ.enabled ? "• <b>Titan (search-api) DISABLED</b>: revisar <code>BEDROCK_MODE=real</code>.<br>" : ""}
@@ -871,6 +883,34 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
         `;
         document.getElementById("debugReload").addEventListener("click", loadDebug);
         document.getElementById("debugClose").addEventListener("click", () => $debugPanel.classList.add("hidden"));
+        bindReindex("reindexSports", "deportes (sport_events)", `${API_BASE}/debug/reindex/sports`);
+        bindReindex("reindexGames", "casino (casino_games)", `${API_BASE}/debug/reindex/games`);
+      }
+
+      // Dispara el POST de reindex al backend con confirm + estado en vivo.
+      function bindReindex(buttonId, label, url) {
+        const $btn = document.getElementById(buttonId);
+        const $status = document.getElementById("reindexStatus");
+        if (!$btn) return;
+        $btn.addEventListener("click", async () => {
+          const ok = confirm(`⚠️ Reindex destructivo de ${label}.\n\nEsto borra la colección y la reconstruye. Con grounding tarda ~100 min y consume Bedrock. ¿Confirmás?`);
+          if (!ok) return;
+          $btn.disabled = true;
+          const oldText = $btn.textContent;
+          $btn.textContent = "Disparando…";
+          $status.textContent = "";
+          try {
+            const r = await fetch(url, { method: "POST" });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const data = await r.json();
+            $status.innerHTML = `<span style="color:#10b981">✓ ${escapeHtml(label)} — ${escapeHtml(data.status || "started")}. Mirá logs del indexer (grep [enrich] / [NOVA_STATS]).</span>`;
+          } catch (err) {
+            $status.innerHTML = `<span style="color:#fca5a5">✗ ${escapeHtml(label)}: ${escapeHtml(err.message)}</span>`;
+          } finally {
+            $btn.disabled = false;
+            $btn.textContent = oldText;
+          }
+        });
       }
 
       $debugFab.addEventListener("click", () => {
