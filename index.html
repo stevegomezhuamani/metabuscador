@@ -852,6 +852,18 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
           </div>
 
           <div class="debug-section">
+            <h4>Logs del indexer <span style="color:#94a3b8;font-weight:normal">(últimos 500 en memoria)</span></h4>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+              <input type="text" id="logsFilter" placeholder="filtro (ej: enrich, NOVA, ERROR)" style="flex:1;padding:4px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px">
+              <button class="debug-btn" id="logsRefresh">↻ Cargar</button>
+              <label style="font-size:11px;color:#475569;display:flex;align-items:center;gap:4px;cursor:pointer">
+                <input type="checkbox" id="logsAuto"> auto 5s
+              </label>
+            </div>
+            <pre id="logsBody" style="background:#0f172a;color:#e2e8f0;font-size:10.5px;line-height:1.35;padding:8px;border-radius:4px;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0">click "Cargar" para traer logs del indexer…</pre>
+          </div>
+
+          <div class="debug-section">
             <h4>Operaciones — Reindex</h4>
             <div style="color:#94a3b8;font-size:11px;line-height:1.5;margin-bottom:8px">
               Dispara un reindex completo en el indexer (drop + recreate de la colección, re-enriquecimiento con Nova + re-vectorización con Titan). Con grounding activo tarda ~100 min. Monitorea logs.
@@ -887,6 +899,48 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
         document.getElementById("debugClose").addEventListener("click", () => $debugPanel.classList.add("hidden"));
         bindReindex("reindexSports", "deportes (sport_events)", `${API_BASE}/debug/reindex/sports`, "sport_events");
         bindReindex("reindexGames", "casino (casino_games)", `${API_BASE}/debug/reindex/games`, "casino_games");
+        bindIndexerLogs();
+      }
+
+      // Carga logs del indexer vía proxy. Si está marcado "auto 5s", refresca
+      // solo. El usuario puede filtrar (substring case-insensitive) para
+      // grepear NOVA, ERROR, enrich, etc.
+      let logsAutoTimer = null;
+      function bindIndexerLogs() {
+        const $filter = document.getElementById("logsFilter");
+        const $refresh = document.getElementById("logsRefresh");
+        const $auto = document.getElementById("logsAuto");
+        const $body = document.getElementById("logsBody");
+        if (!$refresh || !$body) return;
+        async function loadLogs() {
+          $body.textContent = "cargando…";
+          try {
+            const params = new URLSearchParams({ n: "100" });
+            const f = ($filter.value || "").trim();
+            if (f) params.set("filter", f);
+            const r = await fetch(`${API_BASE}/debug/indexer-logs?${params.toString()}`);
+            const data = await r.json();
+            if (data.error) {
+              $body.textContent = `error: ${data.error}\ntried: ${data.tried_url || "?"}\n${data.hint || ""}`;
+              return;
+            }
+            const lines = data.lines || [];
+            if (lines.length === 0) {
+              $body.textContent = `(0 líneas${f ? ` con filtro "${f}"` : ""} · buffer: ${data.total_buffered || 0}/${data.buffer_capacity || 500})`;
+              return;
+            }
+            $body.textContent = lines.join("\n");
+            $body.scrollTop = $body.scrollHeight;
+          } catch (err) {
+            $body.textContent = `error: ${err.message}`;
+          }
+        }
+        $refresh.addEventListener("click", loadLogs);
+        $filter.addEventListener("keydown", (e) => { if (e.key === "Enter") loadLogs(); });
+        $auto.addEventListener("change", () => {
+          if (logsAutoTimer) { clearInterval(logsAutoTimer); logsAutoTimer = null; }
+          if ($auto.checked) { loadLogs(); logsAutoTimer = setInterval(loadLogs, 5000); }
+        });
       }
 
       // Estado del polling de progreso. Solo uno activo a la vez.
