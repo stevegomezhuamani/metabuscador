@@ -817,6 +817,8 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
             <h4>IA — Nova doc enrichment <span style="color:#94a3b8;font-weight:normal">(indexer)</span></h4>
             ${row("estado", novaDocPill)}
             ${row("modelo", escapeHtml(novaDoc.model || "?"))}
+            ${row("INDEXER_BASE_URL", `<span style="font-family:monospace;font-size:11px">${escapeHtml(novaDoc.configured || "(no seteada → usando default)")}</span>`)}
+            ${row("URL probada", `<span style="font-family:monospace;font-size:11px">${escapeHtml(novaDoc.tried_url || "?")}</span>`)}
             ${novaDoc.error ? row("error", `<span style="color:#fca5a5">${escapeHtml(novaDoc.error)}</span>`) : ""}
           </div>
 
