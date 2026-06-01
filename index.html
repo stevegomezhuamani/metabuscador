@@ -883,18 +883,31 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
         `;
         document.getElementById("debugReload").addEventListener("click", loadDebug);
         document.getElementById("debugClose").addEventListener("click", () => $debugPanel.classList.add("hidden"));
-        bindReindex("reindexSports", "deportes (sport_events)", `${API_BASE}/debug/reindex/sports`);
-        bindReindex("reindexGames", "casino (casino_games)", `${API_BASE}/debug/reindex/games`);
+        bindReindex("reindexSports", "deportes (sport_events)", `${API_BASE}/debug/reindex/sports`, "sport_events");
+        bindReindex("reindexGames", "casino (casino_games)", `${API_BASE}/debug/reindex/games`, "casino_games");
       }
 
+      // Estado del polling de progreso. Solo uno activo a la vez.
+      let reindexPollTimer = null;
+
       // Dispara el POST de reindex al backend con confirm + estado en vivo.
-      function bindReindex(buttonId, label, url) {
+      // collection = 'sport_events' | 'casino_games' — se usa para leer el
+      // conteo de docs de Typesense y calcular el avance.
+      function bindReindex(buttonId, label, url, collection) {
         const $btn = document.getElementById(buttonId);
         const $status = document.getElementById("reindexStatus");
         if (!$btn) return;
         $btn.addEventListener("click", async () => {
           const ok = confirm(`⚠️ Reindex destructivo de ${label}.\n\nEsto borra la colección y la reconstruye. Con grounding tarda ~100 min y consume Bedrock. ¿Confirmás?`);
           if (!ok) return;
+          // Capturamos el conteo target ANTES del drop, así sabemos hasta dónde
+          // tiene que crecer para considerar completo el reindex.
+          let target = 0;
+          try {
+            const r0 = await fetch(`${API_BASE}/debug`);
+            const d0 = await r0.json();
+            target = (d0 && d0.typesense && d0.typesense.collections && d0.typesense.collections[collection] && d0.typesense.collections[collection].documents) || 0;
+          } catch (_) { /* sin target => no hay barra, solo logueo */ }
           $btn.disabled = true;
           const oldText = $btn.textContent;
           $btn.textContent = "Disparando…";
@@ -902,8 +915,9 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
           try {
             const r = await fetch(url, { method: "POST" });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const data = await r.json();
-            $status.innerHTML = `<span style="color:#10b981">✓ ${escapeHtml(label)} — ${escapeHtml(data.status || "started")}. Mirá logs del indexer (grep [enrich] / [NOVA_STATS]).</span>`;
+            await r.json();
+            $status.innerHTML = `<span style="color:#10b981">✓ ${escapeHtml(label)} disparado. Polling cada 5s…</span>`;
+            if (target > 0) startReindexPoll(collection, target);
           } catch (err) {
             $status.innerHTML = `<span style="color:#fca5a5">✗ ${escapeHtml(label)}: ${escapeHtml(err.message)}</span>`;
           } finally {
@@ -911,6 +925,47 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
             $btn.textContent = oldText;
           }
         });
+      }
+
+      // Polling cada 5s contra /debug. Lee el doc count de la colección y
+      // pinta una barra de progreso. Se detiene solo cuando llega al target
+      // o tras 1h por seguridad. Si el panel se re-renderiza, busca el div
+      // por ID fresco — si no existe, el tick es silencioso pero sigue.
+      function startReindexPoll(collection, target) {
+        if (reindexPollTimer) clearInterval(reindexPollTimer);
+        const startedAt = Date.now();
+        const MAX_MS = 60 * 60 * 1000; // 1h safety
+        const tick = async () => {
+          const $s = document.getElementById("reindexStatus");
+          if (Date.now() - startedAt > MAX_MS) {
+            clearInterval(reindexPollTimer); reindexPollTimer = null;
+            if ($s) $s.innerHTML += `<br><span style="color:#94a3b8">⏱ Polling detenido (timeout 1h). Revisá logs.</span>`;
+            return;
+          }
+          try {
+            const r = await fetch(`${API_BASE}/debug`);
+            const d = await r.json();
+            const current = (d && d.typesense && d.typesense.collections && d.typesense.collections[collection] && d.typesense.collections[collection].documents) || 0;
+            const pct = Math.min(100, Math.round((current / target) * 100));
+            const elapsedMin = Math.round((Date.now() - startedAt) / 60000);
+            if ($s) {
+              $s.innerHTML = `
+                <div style="color:#1e293b">⏳ Reindex <b>${escapeHtml(collection)}</b>: <b>${current}</b> / ${target} docs (${pct}%) · ${elapsedMin} min</div>
+                <div style="background:#e2e8f0;border-radius:4px;height:8px;margin-top:4px;overflow:hidden">
+                  <div style="background:#3b82f6;width:${pct}%;height:100%;transition:width .4s"></div>
+                </div>
+              `;
+            }
+            if (current >= target && target > 0) {
+              clearInterval(reindexPollTimer); reindexPollTimer = null;
+              if ($s) $s.innerHTML += `<br><span style="color:#10b981">✓ Completado en ~${elapsedMin} min</span>`;
+              // Refresh todo el panel — los conteos de Typesense quedan al día.
+              loadDebug();
+            }
+          } catch (_) { /* transient; el próximo tick reintenta */ }
+        };
+        tick();
+        reindexPollTimer = setInterval(tick, 5000);
       }
 
       $debugFab.addEventListener("click", () => {
