@@ -624,7 +624,7 @@ Estado actualizado de cómo rankea cada tab y el roadmap. Se actualiza con cada 
 | Casino | /casino-games/search | casino_games (CASINO/SLOT/..) | Ranking name-driven |
 | Virtuales | /virtual-games/search | casino_games (VIRTUALES) | Ranking name-driven |
 
-Capas comunes: aliases (cule→Barcelona, messi→Argentina, voley→Voleibol), typos (SymSpell), híbrido lexical+vector.
+Capas comunes: aliases de equipos (cule→Barcelona), apodos vía Nova, rivalidades (el clasico→Real Madrid+Barcelona), competiciones (copa del mundo→Copa Mundial 2026), jugadores vía Nova grounded (ronaldo→Portugal), typos (SymSpell + tolerancia edit-1 en el ranking), híbrido lexical+vector con distance_threshold.
 
 ## 2. Cascade de DEPORTES (11 criterios)
 
@@ -655,11 +655,11 @@ SIN cascade, SIN isLive, SIN tiers
 
 ## 4. Lexical-first (calidad de resultados)
 
-Se busca SOLO lexical primero. Si hay matches reales, no se rellena con vecinos del vector. El vector solo entra si NO hubo match lexical (query conceptual tipo "el clasico").
+Se busca SOLO lexical primero. Si hay matches reales, no se rellena con vecinos del vector. El vector solo entra si NO hubo match lexical, y con \`distance_threshold\` que descarta vecinos lejanos (evita ruido tipo "quien juega real madrid" → NFL).
 
 - "copa libertadores" → solo Copa Libertadores, sin Austria/Australia
 - "blackjack" en Todo → solo blackjacks, sin ruido de deportes
-- "el clasico" → sin match lexical → vector aporta semántica
+- "el clasico" → resuelve por alias a Real Madrid + Barcelona (lexical, ya no vector)
 
 ## 5. Matriz de reglas por tab
 
@@ -701,7 +701,18 @@ Casino necesita criterios del equipo comercial (como los 9 de deportiva).
 
 Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, updated_t. NO hay popularidad / veces jugado / RTP. Para ranking por popularidad, Delta Sharing tendría que exponer ese campo.
 
-## 8. Roadmap
+## 8. Relevancia: aliases + IA (capas escalables)
+
+Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
+
+- **Aliases de equipos (determinístico, ~567 entries)**: apodos estables y finitos. \`xeneize\`→Boca, \`merengue\`→Real Madrid, \`verdolaga\`→Atlético Nacional. Cero IA por búsqueda, nunca alucina. Generados con \`scripts/generate-aliases.py\`.
+- **Rivalidades** → resuelven a los DOS equipos: \`el clasico\`→Real Madrid+Barcelona, \`superclasico\`→Boca+River, \`derby de madrid\`, etc.
+- **Competiciones** → resuelven al leagueName real: \`copa del mundo\`/\`mundial\`→Copa Mundial 2026, \`libertadores\`→Copa Libertadores, \`sudamericana\`, \`copa argentina\`.
+- **Jugadores (Nova grounded, volátil)**: al indexar, Nova verifica por internet en qué club juega HOY cada figura y lo agrega al searchText. \`ronaldo\`→Portugal, \`messi\`→su equipo actual. Se refresca con reindex (post-ventana de pases). Por eso jugadores ≠ aliases: cambian seguido.
+- **Typos**: SymSpell (diccionario auto-reconstruido) + tolerancia edit-1 en el ranking (\`argentna\`→Argentina sube).
+- **eSports**: al fondo en Deportes (pedido PO), pero un match EXACTO en Todo sí sube.
+
+## 9. Roadmap
 
 | # | Mejora | Estado |
 | --- | --- | --- |
@@ -709,9 +720,13 @@ Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, upda
 | B | "blackjack" en Todo sin ruido deportes | ✅ |
 | C | Paginación nativa (3 tabs) | ✅ |
 | Prov | Búsqueda por proveedor en casino | ✅ |
+| Alias | Equipos + rivalidades + competiciones | ✅ |
+| Nova | Jugadores actuales (grounded) | ✅ |
+| Typo | Tolerancia edit-1 en ranking | ✅ |
+| Vec | distance_threshold (menos ruido) | ✅ |
 | D | Ranking casino: populares / en vivo | ⏳ falta data + criterios |
-| E | byKind consistente | ⏳ |
-| F | Performance indexer (skip-por-hash) | ⏳ infra/DevOps |
+| F | Performance indexer (skip-por-hash) | ✅ |
+| Lig | Alias stopword-aware ("partidos de la copa argentina") | ⏳ |
 | H | Geo-aware (Perú/España por IP) | ⏳ futuro |
 `;
 
