@@ -277,6 +277,12 @@
           : "https://search-gaming.api.dev.kurax.dev/bsn-metasearch/v1";
       document.getElementById("apiLabel").textContent = API_BASE;
 
+      // La API ahora envuelve todo en { code, message, data }. unwrap() devuelve
+      // `data` si viene el envelope, o la respuesta cruda si no (robusto a ambos).
+      function unwrap(x) {
+        return x && typeof x === "object" && "code" in x && "data" in x ? x.data : x;
+      }
+
       // Cada categoría: endpoint, cómo extraer la lista, y cómo normalizar un item.
       const CATEGORIES = {
         todo: {
@@ -514,7 +520,7 @@
         try {
           const r = await fetch(cat.url(q, currentPage));
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const data = await r.json();
+          const data = unwrap(await r.json());
           if (reqId !== lastReq) return;
 
           const items = cat.list(data).map(cat.norm);
@@ -783,7 +789,7 @@ Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
         try {
           const r = await fetch(`${API_BASE}/debug`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const d = await r.json();
+          const d = unwrap(await r.json());
           renderDebug(d);
         } catch (err) {
           $debugPanel.innerHTML = `
@@ -949,7 +955,7 @@ Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
             const f = ($filter.value || "").trim();
             if (f) params.set("filter", f);
             const r = await fetch(`${API_BASE}/debug/indexer-logs?${params.toString()}`);
-            const data = await r.json();
+            const data = unwrap(await r.json());
             if (data.error) {
               $body.textContent = `error: ${data.error}\ntried: ${data.tried_url || "?"}\n${data.hint || ""}`;
               return;
@@ -991,7 +997,7 @@ Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
           let target = 0;
           try {
             const r0 = await fetch(`${API_BASE}/debug`);
-            const d0 = await r0.json();
+            const d0 = unwrap(await r0.json());
             target = (d0 && d0.typesense && d0.typesense.collections && d0.typesense.collections[collection] && d0.typesense.collections[collection].documents) || 0;
           } catch (_) { /* sin target => no hay barra, solo logueo */ }
           $btn.disabled = true;
@@ -1030,7 +1036,7 @@ Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
           }
           try {
             const r = await fetch(`${API_BASE}/debug`);
-            const d = await r.json();
+            const d = unwrap(await r.json());
             const current = (d && d.typesense && d.typesense.collections && d.typesense.collections[collection] && d.typesense.collections[collection].documents) || 0;
             const pct = Math.min(100, Math.round((current / target) * 100));
             const elapsedMin = Math.round((Date.now() - startedAt) / 60000);
