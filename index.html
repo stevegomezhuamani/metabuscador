@@ -624,7 +624,7 @@ Estado actualizado de cómo rankea cada tab y el roadmap. Se actualiza con cada 
 | Casino | /casino-games/search | casino_games (CASINO/SLOT/..) | Ranking name-driven |
 | Virtuales | /virtual-games/search | casino_games (VIRTUALES) | Ranking name-driven |
 
-Capas comunes: aliases de equipos (cule→Barcelona), apodos vía Nova, rivalidades (el clasico→Real Madrid+Barcelona), competiciones (copa del mundo→Copa Mundial 2026), jugadores vía Nova grounded (ronaldo→Portugal), typos (SymSpell + tolerancia edit-1 en el ranking), híbrido lexical+vector con distance_threshold.
+Capas comunes: aliases de equipos (cule→Barcelona), apodos vía Nova, rivalidades (el clasico→Real Madrid+Barcelona), competiciones (copa del mundo→Copa Mundial 2026), jugadores vía Nova grounded (ronaldo→Portugal), typos (SymSpell + tolerancia edit-1 en el ranking), subcadenas/infix (celona→Barcelona), tags temáticos de casino (frutas, ruleta…), híbrido lexical+vector con distance_threshold.
 
 ## 2. Cascade de DEPORTES (11 criterios)
 
@@ -650,6 +650,8 @@ Capas comunes: aliases de equipos (cule→Barcelona), apodos vía Nova, rivalida
 query_by: name(4), provider(3), searchText(1)
   ← nombre del juego domina; provider para "pragmatic", "evolution"
 + infix fallback (substrings)
++ searchText enriquecido con TAGS temáticos (frutas, ruleta, fortuna,
+  asiatico, megaways, blackjack...) → busca por TEMA aunque no esté en el nombre
 SIN cascade, SIN isLive, SIN tiers
 \`\`\`
 
@@ -688,18 +690,24 @@ Se busca SOLO lexical primero. Si hay matches reales, no se rellena con vecinos 
 | 4 | Paginación nativa del backend | ✅ los 3 |
 | 5 | Ocultar vector noise | ✅ vía #2 |
 
-## 7. Casino: criterios PENDIENTES de definir
+## 7. Casino: orígenes de datos y filtro "activo en la web"
 
-Casino necesita criterios del equipo comercial (como los 9 de deportiva).
+**Hay dos orígenes** del catálogo de casino:
+- **Datahub (Delta Sharing, \`tc_n_machines\`)** — es el que ingestamos. 18.652 juegos. Marca bajas con prefijo \`DELETED\` en el nombre (4.305). **NO trae el campo de "activo en la web".**
+- **Excel "máquinas Calimaco"** — tiene la columna **\`Estado\` (Habilitada/Deshabilitada)**, que es la que define qué juegos están en la web: **3.379 habilitadas** vs ~14.9k deshabilitadas. También trae los **Tags temáticos**.
 
-| Regla casino | Necesita |
+**Situación**: hoy el índice tiene ~14k (el catálogo del datahub sin DELETED), no los 3.379 habilitados, porque el datahub no expone \`Estado\`. Para llegar a los 3.379:
+- **Durable**: que el datahub exponga \`Estado\` → el ingestor filtra \`Habilitada\` (automático). ← coordinar con Data.
+- **Interino**: filtrar con el Excel (lista de \`machine\` habilitados) → listo a un comando.
+
+| Regla casino | Estado |
 | --- | --- |
-| Más jugados / populares | campo popularidad (no existe en data hoy) |
-| Casino en vivo arriba | type=CASINO_EN_VIVO ya existe — fácil |
-| Proveedor preferido | definición del negocio |
-| Temática / categoría | definición del negocio |
+| Solo activos en la web (3.379) | ⏳ falta \`Estado\` en datahub (o filtro Excel) |
+| Tags temáticos (frutas, ruleta, fortuna…) | ✅ enriquecido en searchText |
+| Casino en vivo arriba | type=CASINO_EN_VIVO existe — fácil de sumar |
+| Más jugados / populares | falta campo popularidad en la data |
 
-Data hoy: el doc de casino solo tiene id, name, provider, type, searchText, updated_t. NO hay popularidad / veces jugado / RTP. Para ranking por popularidad, Delta Sharing tendría que exponer ese campo.
+Campos del datahub: machine, name, web_name, provider, sub_provider, type, is_live, allow_freespins. NO hay popularidad/RTP/estado.
 
 ## 8. Relevancia: aliases + IA (capas escalables)
 
@@ -710,6 +718,8 @@ Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
 - **Competiciones** → resuelven al leagueName real: \`copa del mundo\`/\`mundial\`→Copa Mundial 2026, \`libertadores\`→Copa Libertadores, \`sudamericana\`, \`copa argentina\`.
 - **Jugadores (Nova grounded, volátil)**: al indexar, Nova verifica por internet en qué club juega HOY cada figura y lo agrega al searchText. \`ronaldo\`→Portugal, \`messi\`→su equipo actual. Se refresca con reindex (post-ventana de pases). Por eso jugadores ≠ aliases: cambian seguido.
 - **Typos**: SymSpell (diccionario auto-reconstruido) + tolerancia edit-1 en el ranking (\`argentna\`→Argentina sube).
+- **Subcadenas (infix)**: \`celona\`→Barcelona, \`gentina\`→Argentina, \`nited\`→Manchester United. Cubre lo que el typo (máx 2 ediciones) y el prefijo no alcanzan.
+- **Tags de casino (catálogo Calimaco)**: cada juego se enriquece con sus temas (\`frutas\`, \`ruleta\`, \`fortuna\`, \`asiatico\`, \`megaways\`, \`blackjack\`…) → buscar por tema encuentra el juego aunque la palabra no esté en el nombre.
 - **eSports**: al fondo en Deportes (pedido PO), pero un match EXACTO en Todo sí sube.
 
 ## 9. Roadmap
@@ -724,8 +734,13 @@ Tres capas que hacen el buscador "inteligente" sin mantenimiento manual:
 | Nova | Jugadores actuales (grounded) | ✅ |
 | Typo | Tolerancia edit-1 en ranking | ✅ |
 | Vec | distance_threshold (menos ruido) | ✅ |
-| D | Ranking casino: populares / en vivo | ⏳ falta data + criterios |
+| Infix | Subcadenas (celona→Barcelona) | ✅ |
+| Tags | Casino enriquecido por tema (frutas, ruleta…) | ✅ |
+| Limp | Auto-limpieza de eventos terminados | ✅ |
+| Robust | Reindex blue-green (sin downtime, no decima) | ✅ |
 | F | Performance indexer (skip-por-hash) | ✅ |
+| Web | Casino solo "Habilitada" (3.379) | ⏳ falta Estado en datahub / filtro Excel |
+| D | Ranking casino: populares / en vivo | ⏳ falta data + criterios |
 | Lig | Alias stopword-aware ("partidos de la copa argentina") | ⏳ |
 | H | Geo-aware (Perú/España por IP) | ⏳ futuro |
 `;
