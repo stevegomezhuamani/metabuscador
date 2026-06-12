@@ -109,6 +109,10 @@
       }
       .gender-f { background: #fce7f3; color: #be185d; }
       .gender-m { background: #e0f2fe; color: #0369a1; }
+      .origin-sem { background: #ede9fe; color: #6d28d9; font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 700; }
+      .origin-lex { background: #f1f5f9; color: #64748b; font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+      .explain-line { margin-top: 6px; font-size: 11px; color: #6d28d9; background: #faf5ff; border: 1px dashed #ddd6fe; border-radius: 8px; padding: 4px 8px; font-family: ui-monospace, monospace; }
+      .explain-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
 
       .bykind .pill {
         background: #ffffff; border: 1px solid var(--border);
@@ -248,6 +252,9 @@
         <div class="tab" data-cat="deportes">Deportes</div>
         <div class="tab" data-cat="casino">Casino</div>
         <div class="tab" data-cat="virtuales">Virtuales</div>
+        <label class="explain-toggle" title="Muestra por resultado si vino por búsqueda sintáctica o semántica (con su distancia) y el desglose del ranking.">
+          <input type="checkbox" id="explainToggle" /> 🔬 Explain
+        </label>
       </div>
 
       <input
@@ -303,11 +310,14 @@
               away: doc.participantAway,
               provider: doc.provider,
               gameType: doc.type,
+              semantic: doc.semantic,
+              vd: doc.vectorDistance,
+              rel: doc.relevance,
             };
           },
         },
         deportes: {
-          url: (q, page) => `${API_BASE}/sports-events/search?q=${encodeURIComponent(q)}&page=${page}`,
+          url: (q, page) => `${API_BASE}/sports-events/search?q=${encodeURIComponent(q)}&page=${page}${explainOn ? "&explain=true" : ""}`,
           list: (d) => d.events || [],
           norm: (e) => ({
             kind: "sport-event",
@@ -320,6 +330,9 @@
             date: e.startEventDate_pe || e.startEventDate,
             home: e.participantHome,
             away: e.participantAway,
+            semantic: e.semantic,
+            vd: e.vectorDistance,
+            rel: e.relevance,
           }),
         },
         casino: {
@@ -345,6 +358,7 @@
       };
 
       let activeCat = "todo";
+      let explainOn = false;
       let lastReq = 0;
 
       const $q = document.getElementById("q");
@@ -423,12 +437,23 @@
           const league = [item.league, item.region].filter(Boolean).join(" · ");
           const home = item.home || (item.title || "").split(/\s+vs\s+/i)[0] || item.title;
           const away = item.away || (item.title || "").split(/\s+vs\s+/i)[1] || "";
+          // Origen: semántica (vector + distancia) vs sintáctica (texto).
+          const originBadge = explainOn
+            ? (item.semantic
+                ? `<span class="origin-sem">🧠 SEMÁNTICA${typeof item.vd === "number" ? " · dist " + item.vd.toFixed(2) : ""}</span>`
+                : `<span class="origin-lex">📝 SINTÁCTICA</span>`)
+            : "";
+          const r = item.rel;
+          const explainLine = explainOn && r
+            ? `<div class="explain-line">match=${r.matchKind} · tokens ${r.tokensMatched}/${r.queryTokens}${r.isMundial ? " · MUNDIAL" : ""} · tiers L${r.leagueTier}/T${r.teamTier}/S${r.sportTier} · región ${r.regionTier} · textMatch ${Number(r.textMatch || 0).toExponential(1)}</div>`
+            : "";
           return `
             <div class="card card-light">
-              <div class="card-top">${top}${kindBadge}${genderBadge}</div>
+              <div class="card-top">${top}${kindBadge}${genderBadge}${originBadge}</div>
               <div class="card-league">${sportEmoji(item.sport)} <span>${escapeHtml(league)}</span></div>
               <div class="card-team">${highlight(home, q)}</div>
               ${away ? `<div class="card-team">${highlight(away, q)}</div>` : ""}
+              ${explainLine}
             </div>`;
         }
 
@@ -562,6 +587,13 @@
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         runSearch(true);
         $q.focus();
+      });
+
+      // Toggle Explain: re-busca con &explain=true (deportes) y muestra el
+      // origen (semántica/sintáctica + distancia) y el desglose del ranking.
+      document.getElementById("explainToggle").addEventListener("change", (e) => {
+        explainOn = e.target.checked;
+        runSearch(false);
       });
 
       // ─────────────────────────────────────────────────────────────────
