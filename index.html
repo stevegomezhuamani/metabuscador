@@ -560,9 +560,15 @@
             return;
           }
           const total = data.total ?? items.length;
-          $status.textContent = total > items.length
+          // Con Explain: mostrar cómo se resolvió la query (alias/typo/literal).
+          const qr = data.queryResolution;
+          const VIA_LABEL = { alias: "alias", league: "competición", rivalry: "rivalidad", dictionary: "typo corregido", literal: "" };
+          const resNote = explainOn && qr && qr.effective && qr.effective.toLowerCase() !== q.toLowerCase() && VIA_LABEL[qr.via]
+            ? ` · «${q}» → «${qr.effective}» (${VIA_LABEL[qr.via]})`
+            : "";
+          $status.textContent = (total > items.length
             ? `${total} coincidencias`
-            : `${total} resultado${total === 1 ? "" : "s"}`;
+            : `${total} resultado${total === 1 ? "" : "s"}`) + resNote;
           $results.innerHTML = items.map((it) => card(it, q)).join("");
           renderPager(data, items.length);
           // Al cambiar de página, subir al inicio de resultados.
