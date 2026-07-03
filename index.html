@@ -94,6 +94,18 @@
       }
       .card-light mark { background: #fde68a; color: #0f172a; }
 
+      /* Miniatura del juego (logo Calimaco) */
+      .game-row { display: flex; gap: 10px; align-items: center; }
+      .game-info { min-width: 0; }
+      .game-logo {
+        width: 56px; height: 56px; flex: 0 0 56px;
+        object-fit: cover; border-radius: 8px; background: #f1f5f9;
+      }
+      .game-logo-ph {
+        display: flex; align-items: center; justify-content: center;
+        font-size: 26px;
+      }
+
       /* Pastillas en tono claro para contrastar sobre la card blanca */
       .kind {
         font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
@@ -310,6 +322,7 @@
               away: doc.participantAway,
               provider: doc.provider,
               gameType: doc.type,
+              logo: doc.logo,
               semantic: doc.semantic,
               vd: doc.vectorDistance,
               rel: doc.relevance,
@@ -343,6 +356,7 @@
             title: g.name,
             provider: g.provider,
             gameType: g.type,
+            logo: g.logo,
           }),
         },
         virtuales: {
@@ -353,6 +367,7 @@
             title: g.name,
             provider: g.provider,
             gameType: g.type,
+            logo: g.logo,
           }),
         },
       };
@@ -457,14 +472,24 @@
             </div>`;
         }
 
-        // Casino / virtual: emoji de juego + nombre + proveedor/tipo.
+        // Casino / virtual: miniatura (logo Calimaco) + nombre + proveedor/tipo.
+        // El logo viene como ruta relativa; el front antepone el host de AT.
+        const IMG_BASE = "https://www.apuestatotal.com";
         const meta = [item.provider, item.gameType].filter(Boolean).join(" · ");
         const emoji = item.kind === "virtual-game" ? "🎮" : "🎰";
+        const logoHtml = item.logo
+          ? `<img class="game-logo" src="${IMG_BASE}${encodeURI(item.logo)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'game-logo game-logo-ph',textContent:'${emoji}'}))">`
+          : `<div class="game-logo game-logo-ph">${emoji}</div>`;
         return `
           <div class="card card-light">
             <div class="card-top">${kindBadge}</div>
-            <div class="card-team">${emoji} ${highlight(item.title || "", q)}</div>
-            ${meta ? `<div class="card-league"><span>${escapeHtml(meta)}</span></div>` : ""}
+            <div class="game-row">
+              ${logoHtml}
+              <div class="game-info">
+                <div class="card-team">${highlight(item.title || "", q)}</div>
+                ${meta ? `<div class="card-league"><span>${escapeHtml(meta)}</span></div>` : ""}
+              </div>
+            </div>
           </div>`;
       }
 
