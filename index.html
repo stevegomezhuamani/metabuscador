@@ -105,6 +105,11 @@
         display: flex; align-items: center; justify-content: center;
         font-size: 26px;
       }
+      .tag-badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+      .tag-badge {
+        font-size: 11px; padding: 2px 7px; border-radius: 999px;
+        background: #ede9fe; color: #6d28d9; font-weight: 600;
+      }
 
       /* Pastillas en tono claro para contrastar sobre la card blanca */
       .kind {
@@ -323,6 +328,8 @@
               provider: doc.provider,
               gameType: doc.type,
               logo: doc.logo,
+              subProvider: doc.sub_provider,
+              tags: doc.tags,
               semantic: doc.semantic,
               vd: doc.vectorDistance,
               rel: doc.relevance,
@@ -357,6 +364,8 @@
             provider: g.provider,
             gameType: g.type,
             logo: g.logo,
+            subProvider: g.sub_provider,
+            tags: g.tags,
           }),
         },
         virtuales: {
@@ -368,6 +377,8 @@
             provider: g.provider,
             gameType: g.type,
             logo: g.logo,
+            subProvider: g.sub_provider,
+            tags: g.tags,
           }),
         },
       };
@@ -433,6 +444,41 @@
         return `${d}/${mo} · ${h}:${mi}`;
       }
 
+      // Tags CRUDOS de Calimaco → etiquetas legibles (como los chips del casino).
+      // Mapa para los conocidos; el resto se limpia (quita prefijo opt_*_ y _ ).
+      const TAG_DENY = new Set(["HOMOLOGADO"]);
+      const TAG_LABEL = {
+        "opt_tag_buy_bonus": "Buy Bonus",
+        "opt_tag_megaways": "Megaways",
+        "opt_tag_tragamonedas": "Tragamonedas",
+        "opt_jackpot_progresivo": "Jackpot",
+        "opt_jackpot_no_progresivo": "Jackpot",
+        "JUEGO NUEVO": "Nuevo",
+        "TOP 10": "Top 10",
+        "PROMOCION": "Promoción",
+      };
+      function tagBadges(raw) {
+        if (!raw) return "";
+        const seen = new Set();
+        const out = [];
+        for (const t of String(raw).split(",")) {
+          const tag = t.trim();
+          if (!tag || TAG_DENY.has(tag.toUpperCase())) continue;
+          let label = TAG_LABEL[tag];
+          if (!label) {
+            const clean = tag.replace(/^opt_(themeL|themeV|theme|tagL|tagV|tag|jackpot)_?/i, "").replace(/_/g, " ").trim();
+            if (!clean) continue;
+            label = clean.charAt(0).toUpperCase() + clean.slice(1);
+          }
+          const key = label.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(`<span class="tag-badge">${escapeHtml(label)}</span>`);
+          if (out.length >= 3) break;
+        }
+        return out.join("");
+      }
+
       function card(item, q) {
         const isSport = item.kind === "sport-event";
         const kindBadge =
@@ -472,14 +518,17 @@
             </div>`;
         }
 
-        // Casino / virtual: miniatura (logo Calimaco) + nombre + proveedor/tipo.
+        // Casino / virtual: miniatura (logo Calimaco) + nombre + proveedor/tipo + badges.
         // El logo viene como ruta relativa; el front antepone el host de AT.
         const IMG_BASE = "https://www.apuestatotal.com";
-        const meta = [item.provider, item.gameType].filter(Boolean).join(" · ");
+        // Estudio real (sub_provider) solo si difiere del provider/agregador.
+        const studio = item.subProvider && item.subProvider !== item.provider ? item.subProvider : "";
+        const meta = [item.provider, studio, item.gameType].filter(Boolean).join(" · ");
         const emoji = item.kind === "virtual-game" ? "🎮" : "🎰";
         const logoHtml = item.logo
           ? `<img class="game-logo" src="${IMG_BASE}${encodeURI(item.logo)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'game-logo game-logo-ph',textContent:'${emoji}'}))">`
           : `<div class="game-logo game-logo-ph">${emoji}</div>`;
+        const badges = tagBadges(item.tags);
         return `
           <div class="card card-light">
             <div class="card-top">${kindBadge}</div>
@@ -488,6 +537,7 @@
               <div class="game-info">
                 <div class="card-team">${highlight(item.title || "", q)}</div>
                 ${meta ? `<div class="card-league"><span>${escapeHtml(meta)}</span></div>` : ""}
+                ${badges ? `<div class="tag-badges">${badges}</div>` : ""}
               </div>
             </div>
           </div>`;
