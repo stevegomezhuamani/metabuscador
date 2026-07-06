@@ -307,6 +307,43 @@
         return x && typeof x === "object" && "code" in x && "data" in x ? x.data : x;
       }
 
+      // El `document` viene en forma ROGUE (PascalCase) desde 2026-07-06 —
+      // deportes tal cual Rogue (EventName, Participants, IsLive, Markets…) y
+      // casino/virtuales PascalCase (Name, Provider, Type…). Helpers para leerlo:
+      const partHA = (doc) => {
+        const ps = Array.isArray(doc.Participants) ? doc.Participants : [];
+        const h = (ps.find((p) => p && p.VenueRole === "Home") || {}).Name || "";
+        const a = (ps.find((p) => p && p.VenueRole === "Away") || {}).Name || "";
+        return { home: h, away: a };
+      };
+      const normSport = (e) => {
+        const ha = partHA(e);
+        return {
+          kind: "sport-event",
+          title: e.EventName,
+          live: e.IsLive,
+          gender: e.Gender,
+          sport: e.SportName,
+          league: e.LeagueName,
+          region: e.RegionName,
+          date: e.StartEventDatePe || e.StartEventDate,
+          home: ha.home,
+          away: ha.away,
+          semantic: e.Semantic,
+          vd: e.VectorDistance,
+          rel: e.relevance, // con explain=true el search-api agrega `relevance` (minúscula)
+        };
+      };
+      const normGame = (kind, g) => ({
+        kind,
+        title: g.Name,
+        provider: g.Provider,
+        gameType: g.Type,
+        logo: g.Logo,
+        subProvider: g.SubProvider,
+        tags: g.Tags,
+      });
+
       // Cada categoría: endpoint, cómo extraer la lista, y cómo normalizar un item.
       const CATEGORIES = {
         todo: {
@@ -314,72 +351,25 @@
           list: (d) => d.products || [],
           norm: (p) => {
             const doc = p.document || {};
-            return {
-              kind: p.kind,
-              title: p.title,
-              gender: doc.gender,
-              live: doc.isLive,
-              sport: doc.sportName,
-              league: doc.leagueName,
-              region: doc.regionName,
-              date: doc.startEventDate_pe || doc.startEventDate,
-              home: doc.participantHome,
-              away: doc.participantAway,
-              provider: doc.provider,
-              gameType: doc.type,
-              logo: doc.logo,
-              subProvider: doc.sub_provider,
-              tags: doc.tags,
-              semantic: doc.semantic,
-              vd: doc.vectorDistance,
-              rel: doc.relevance,
-            };
+            if (p.kind === "sport-event") return { ...normSport(doc), title: p.title };
+            const kind = p.kind === "virtual-game" ? "virtual-game" : "casino-game";
+            return { ...normGame(kind, doc), title: p.title };
           },
         },
         deportes: {
           url: (q, page) => `${API_BASE}/sports-events/search?q=${encodeURIComponent(q)}&page=${page}${explainOn ? "&explain=true" : ""}`,
           list: (d) => d.events || [],
-          norm: (e) => ({
-            kind: "sport-event",
-            title: e.eventName,
-            live: e.isLive,
-            gender: e.gender,
-            sport: e.sportName,
-            league: e.leagueName,
-            region: e.regionName,
-            date: e.startEventDate_pe || e.startEventDate,
-            home: e.participantHome,
-            away: e.participantAway,
-            semantic: e.semantic,
-            vd: e.vectorDistance,
-            rel: e.relevance,
-          }),
+          norm: (e) => normSport(e),
         },
         casino: {
           url: (q, page) => `${API_BASE}/casino-games/search?q=${encodeURIComponent(q)}&page=${page}`,
           list: (d) => d.games || [],
-          norm: (g) => ({
-            kind: "casino-game",
-            title: g.name,
-            provider: g.provider,
-            gameType: g.type,
-            logo: g.logo,
-            subProvider: g.sub_provider,
-            tags: g.tags,
-          }),
+          norm: (g) => normGame("casino-game", g),
         },
         virtuales: {
           url: (q) => `${API_BASE}/virtual-games/search?q=${encodeURIComponent(q)}`,
           list: (d) => d.games || [],
-          norm: (g) => ({
-            kind: "virtual-game",
-            title: g.name,
-            provider: g.provider,
-            gameType: g.type,
-            logo: g.logo,
-            subProvider: g.sub_provider,
-            tags: g.tags,
-          }),
+          norm: (g) => normGame("virtual-game", g),
         },
       };
 
