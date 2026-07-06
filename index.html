@@ -111,6 +111,19 @@
         background: #ede9fe; color: #6d28d9; font-weight: 600;
       }
 
+      /* Filtro por proveedor (chips desde los facets del backend). El servicio
+         entrega los facets; el front arma el filtro y aplica ?provider= */
+      .filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0 10px; }
+      .filters-label { font-size: 12px; color: #64748b; font-weight: 600; margin-right: 2px; }
+      .filter-chip {
+        font-size: 12px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+        background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; font-weight: 600;
+        transition: all .12s;
+      }
+      .filter-chip:hover { background: #e2e8f0; }
+      .filter-chip.active { background: #6d28d9; color: #fff; border-color: #6d28d9; }
+      .filter-chip .cnt { opacity: .65; font-weight: 500; margin-left: 3px; }
+
       /* Pastillas en tono claro para contrastar sobre la card blanca */
       .kind {
         font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
@@ -287,6 +300,7 @@
         <span id="timing"></span>
       </div>
       <div class="bykind" id="bykind"></div>
+      <div id="filters" class="filters"></div>
       <div id="suggestions"></div>
 
       <div id="results" class="results"></div>
@@ -382,7 +396,14 @@
       const $status = document.getElementById("status");
       const $timing = document.getElementById("timing");
       const $bykind = document.getElementById("bykind");
+      const $filters = document.getElementById("filters");
       const $tabs = document.getElementById("tabs");
+
+      // Filtro por PROVEEDOR (games). El backend entrega los `facets`; el front
+      // arma los chips y aplica ?provider=. `providerFacets` persiste la lista
+      // completa (de la búsqueda sin filtro) para que al elegir uno no colapse.
+      let selectedProvider = null;
+      let providerFacets = [];
 
       const debounce = (fn, ms) => {
         let t;
@@ -593,6 +614,31 @@
 
       // Núcleo de la búsqueda. resetPage=true vuelve a página 1 (query nueva o
       // cambio de tab); resetPage=false mantiene la página (clic en paginación).
+      // Chips de proveedor desde los `facets` del backend (solo games). El
+      // servicio entrega los facets; el front arma el filtro y aplica ?provider=.
+      function renderFilters(data) {
+        if (activeCat === "deportes") { $filters.innerHTML = ""; return; }
+        const provFacet = (data.facets || []).find((f) => f.field === "provider");
+        // Refrescamos la lista completa solo sin filtro aplicado (para que al
+        // elegir un proveedor no se colapse a uno solo).
+        if (!selectedProvider && provFacet) {
+          providerFacets = (provFacet.values || []).slice(0, 14);
+        }
+        if (!providerFacets.length) { $filters.innerHTML = ""; return; }
+        const chips = providerFacets
+          .map((v) => `<span class="filter-chip${selectedProvider === v.value ? " active" : ""}" data-prov="${escapeHtml(v.value)}">${escapeHtml(v.value)}<span class="cnt">${v.count}</span></span>`)
+          .join("");
+        const todos = `<span class="filter-chip${selectedProvider ? "" : " active"}" data-prov="">Todos</span>`;
+        $filters.innerHTML = `<span class="filters-label">Proveedor:</span>${todos}${chips}`;
+      }
+
+      $filters.addEventListener("click", (e) => {
+        const chip = e.target.closest(".filter-chip");
+        if (!chip) return;
+        selectedProvider = chip.dataset.prov || null;
+        runSearch(true);
+      });
+
       async function runSearch(resetPage = true) {
         if (resetPage) currentPage = 1;
         const q = $q.value.trim();
@@ -607,8 +653,13 @@
         const reqId = ++lastReq;
         $status.textContent = "Buscando…";
         const cat = CATEGORIES[activeCat];
+        // El filtro por proveedor solo aplica a games (todo/casino/virtuales).
+        let url = cat.url(q, currentPage);
+        if (selectedProvider && activeCat !== "deportes") {
+          url += "&provider=" + encodeURIComponent(selectedProvider);
+        }
         try {
-          const r = await fetch(cat.url(q, currentPage));
+          const r = await fetch(url);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = unwrap(await r.json());
           if (reqId !== lastReq) return;
@@ -616,6 +667,7 @@
           const items = cat.list(data).map(cat.norm);
           $timing.textContent = data.searchTime != null ? `${data.searchTime} ms` : "";
           renderByKind(data);
+          renderFilters(data);
           renderSuggestions(data.aliasSuggestions);
 
           if (!items.length) {
@@ -649,12 +701,17 @@
 
       const search = debounce(() => runSearch(true), 350);
 
-      $q.addEventListener("input", search);
+      // Query nueva → reseteamos el filtro de proveedor (los facets se repueblan).
+      $q.addEventListener("input", () => {
+        selectedProvider = null; providerFacets = [];
+        search();
+      });
 
       $tabs.addEventListener("click", (e) => {
         const tab = e.target.closest(".tab");
         if (!tab) return;
         activeCat = tab.dataset.cat;
+        selectedProvider = null; providerFacets = [];
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
         runSearch(true);
         $q.focus();
