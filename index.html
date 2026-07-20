@@ -91,6 +91,10 @@
       }
       .card-light .card-team {
         font-weight: 600; font-size: 15px; color: #0f172a; line-height: 1.4;
+        display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      }
+      .card-light .card-score {
+        font-weight: 700; color: #475569; flex-shrink: 0;
       }
       .card-light mark { background: #fde68a; color: #0f172a; }
 
@@ -332,6 +336,7 @@
       };
       const normSport = (e) => {
         const ha = partHA(e);
+        const score = e.Score || {};
         return {
           kind: "sport-event",
           title: e.EventName,
@@ -343,6 +348,8 @@
           date: e.StartEventDatePe || e.StartEventDate,
           home: ha.home,
           away: ha.away,
+          scoreHome: score.HomeScore,
+          scoreAway: score.AwayScore,
           semantic: e.Semantic,
           vd: e.VectorDistance,
           rel: e.relevance, // con explain=true el search-api agrega `relevance` (minúscula)
@@ -509,6 +516,11 @@
           const league = [item.league, item.region].filter(Boolean).join(" · ");
           const home = item.home || (item.title || "").split(/\s+vs\s+/i)[0] || item.title;
           const away = item.away || (item.title || "").split(/\s+vs\s+/i)[1] || "";
+          // Marcador: 0-0 por default (partido sin empezar o campo vacío) — se
+          // va a ir mejorando cuando el dato en vivo sea más frecuente (ver
+          // discusión de SSE/tiempo real).
+          const scoreHome = item.scoreHome === "" || item.scoreHome == null ? "0" : escapeHtml(String(item.scoreHome));
+          const scoreAway = item.scoreAway === "" || item.scoreAway == null ? "0" : escapeHtml(String(item.scoreAway));
           // Origen: semántica (vector + distancia) vs sintáctica (texto).
           const originBadge = explainOn
             ? (item.semantic
@@ -523,8 +535,8 @@
             <div class="card card-light">
               <div class="card-top">${top}${kindBadge}${genderBadge}${originBadge}</div>
               <div class="card-league">${sportEmoji(item.sport)} <span>${escapeHtml(league)}</span></div>
-              <div class="card-team">${highlight(home, q)}</div>
-              ${away ? `<div class="card-team">${highlight(away, q)}</div>` : ""}
+              <div class="card-team"><span>${highlight(home, q)}</span><span class="card-score">${scoreHome}</span></div>
+              ${away ? `<div class="card-team"><span>${highlight(away, q)}</span><span class="card-score">${scoreAway}</span></div>` : ""}
               ${explainLine}
             </div>`;
         }
